@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
+const LIMITS = {
+  free: { dreams: 3, images: 0 },
+  plus: { dreams: 20, images: 10 },
+  premium: { dreams: 50, images: 20 },
+};
+
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,7 +84,87 @@ export default async function handler(req, res) {
         }
       }
     }
+    // 1.5) Login kullanıcı için aylık limit kontrolü
+    if (userId) {
+      const monthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
 
+      // Profil var mı? yoksa oluştur
+      let { data: profile, error: profileErr } = await supabase
+        .from("profiles")
+        .select("plan, dreams_used_month, images_used_month, month_key")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (profileErr) {
+        return res.status(500).json({ error: "profiles read failed", detail: profileErr.message });
+      }
+
+      if (!profile) {
+        // ilk kez login olan kullanıcı
+        const { data: created, error: createErr } = await supabase
+          .from("profiles")
+          .insert({
+            user_id: userId,
+            plan: "free",
+            dreams_used_month: 0,
+            images_used_month: 0,
+            month_key: monthKey,
+            prefs: {}
+          })
+          .select("plan, dreams_used_month, images_used_month, month_key")
+          .single();
+
+        if (createErr) {
+          return res.status(500).json({ error: "profiles insert failed", detail: createErr.message });
+        }
+        profile = created;
+      }
+
+      // Ay değiştiyse sayaçları sıfırla
+      if (profile.month_key !== monthKey) {
+        const { data: resetProfile, error: resetErr } = await supabase
+          .from("profiles")
+          .update({
+            dreams_used_month: 0,
+            images_used_month: 0,
+            month_key: monthKey,
+            updated_at: new Date().toISOString()
+          })
+          .eq("user_id", userId)
+          .select("plan, dreams_used_month, images_used_month, month_key")
+          .single();
+
+        if (resetErr) {
+          return res.status(500).json({ error: "profiles reset failed", detail: resetErr.message });
+        }
+        profile = resetProfile;
+      }
+
+      const plan = (profile.plan || "free").toLowerCase();
+      const limits = LIMITS[plan] || LIMITS.free;
+
+      if ((profile.dreams_used_month ?? 0) >= limits.dreams) {
+        return res.status(403).json({
+          error: "Monthly limit reached",
+          message: `Bu ayki rüya hakkın doldu (${limits.dreams}). Plus veya Premium'a geçebilirsin.`,
+          plan,
+          limit: limits.dreams
+        });
+      }
+
+      // hakkı düş
+      const { error: incErr } = await supabase
+        .from("profiles")
+        .update({
+          dreams_used_month: (profile.dreams_used_month ?? 0) + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq("user_id", userId);
+
+      if (incErr) {
+        return res.status(500).json({ error: "profiles increment failed", detail: incErr.message });
+      }
+    }
     // 2) Şimdilik "test yorum" (Claude sonraki adım)
     const resultTraditional = modeSelected === "traditional"
       ? "TEST: Geleneksel yorum yakında burada görünecek."
