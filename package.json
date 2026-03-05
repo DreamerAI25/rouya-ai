@@ -11,5 +11,6 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "@supabase/supabase-js": "^2.39.7"
+    "@anthropic-ai/sdk": "^0.32.1"
   }
 }
