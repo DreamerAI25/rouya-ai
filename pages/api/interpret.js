@@ -241,13 +241,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "dream insert failed", detail: dreamInsertErr.message });
     }
 
-    return res.status(200).json({
-      ok: true,
-      dreamId: insertedDream.id,
-      createdAt: insertedDream.created_at,
-      modeSelected,
-      interpretation:
-        modeSelected === "traditional" ? resultTraditional : resultInternal
+   return res.status(200).json({
+  ok: true,
+  dreamId: insertedDream.id,
+  createdAt: insertedDream.created_at,
+  compare,
+  modeSelected,
+  traditional: resultTraditional,
+  internal: resultInternal
+});
     });
 
   } catch (e) {
