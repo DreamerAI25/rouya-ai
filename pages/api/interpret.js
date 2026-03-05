@@ -16,6 +16,8 @@ function getAnthropic() {
 function buildPrompt(modeSelected, dreamText) {
   const master = `You are Rouya, an AI dream interpretation assistant.
 
+const compare = (body.compare || "0").toString() === "1"; // 1 ise iki yorum
+
 Rules:
 - No predictions, no fear language, no absolute claims.
 - No medical or psychological diagnosis.
@@ -195,21 +197,32 @@ export default async function handler(req, res) {
     }
     
     // 2) Claude ile gerçek yorum
-    const anthropic = getAnthropic();
-    const prompt = buildPrompt(modeSelected, dreamText);
+       const anthropic = getAnthropic();
 
-    const msg = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-latest",
-      max_tokens: 300,
-      temperature: 0.7,
-      messages: [{ role: "user", content: prompt }],
-    });
+    async function runClaude(mode) {
+      const prompt = buildPrompt(mode, dreamText);
+      const msg = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-latest",
+        max_tokens: 300,
+        temperature: 0.7,
+        messages: [{ role: "user", content: prompt }],
+      });
+      return msg?.content?.[0]?.text?.trim() || "Yorum üretilemedi.";
+    }
 
-    const interpretation =
-      msg?.content?.[0]?.text?.trim() || "Yorum üretilemedi.";
+    let resultTraditional = null;
+    let resultInternal = null;
 
-    const resultTraditional = modeSelected === "traditional" ? interpretation : null;
-    const resultInternal = modeSelected === "internal" ? interpretation : null;
+    if (compare) {
+      // İki yorum birden
+      resultTraditional = await runClaude("traditional");
+      resultInternal = await runClaude("internal");
+    } else {
+      // Tek yorum (seçilen moda göre)
+      const single = await runClaude(modeSelected);
+      resultTraditional = modeSelected === "traditional" ? single : null;
+      resultInternal = modeSelected === "internal" ? single : null;
+    }
 
     // 3) Dream kaydı
     const { data: insertedDream, error: dreamInsertErr } = await supabase
