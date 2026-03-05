@@ -154,7 +154,7 @@ export default async function handler(req, res) {
     async function runClaude(mode) {
       const prompt = buildPrompt(mode, dreamText);
       const msg = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-sonnet-4-6",
         max_tokens: 300,
         temperature: 0.7,
         messages: [{ role: "user", content: prompt }],
