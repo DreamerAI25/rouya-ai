@@ -1,10 +1,38 @@
 import { createClient } from "@supabase/supabase-js";
+import Anthropic from "@anthropic-ai/sdk";
 
 const LIMITS = {
   free: { dreams: 3, images: 0 },
   plus: { dreams: 20, images: 10 },
   premium: { dreams: 50, images: 20 },
 };
+
+function getAnthropic() {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("Missing ANTHROPIC_API_KEY env var.");
+  return new Anthropic({ apiKey: key });
+}
+
+function buildPrompt(modeSelected, dreamText) {
+  const master = `You are Rouya, an AI dream interpretation assistant.
+
+Rules:
+- No predictions, no fear language, no absolute claims.
+- No medical or psychological diagnosis.
+- Warm, calm, human tone.
+- Under 180 words.
+- End with ONE gentle reflective question.`;
+
+  const traditional = `Interpret the dream using a traditional cultural perspective.
+Use soft phrasing like "in some classical sources..." and avoid certainty.`;
+
+  const internal = `Interpret the dream using a psychological + reflective perspective.
+Do not sound clinical. Focus on emotions and personal meaning.`;
+
+  const modeText = modeSelected === "traditional" ? traditional : internal;
+
+  return `${master}\n\n${modeText}\n\nDream:\n${dreamText}`;
+}
 
 function getSupabaseAdmin() {
   const url = process.env.SUPABASE_URL;
@@ -165,14 +193,23 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: "profiles increment failed", detail: incErr.message });
       }
     }
-    // 2) Şimdilik "test yorum" (Claude sonraki adım)
-    const resultTraditional = modeSelected === "traditional"
-      ? "TEST: Geleneksel yorum yakında burada görünecek."
-      : null;
+    
+    // 2) Claude ile gerçek yorum
+    const anthropic = getAnthropic();
+    const prompt = buildPrompt(modeSelected, dreamText);
 
-    const resultInternal = modeSelected === "internal"
-      ? "TEST: İçsel yansıtıcı yorum yakında burada görünecek."
-      : null;
+    const msg = await anthropic.messages.create({
+      model: "claude-3-5-sonnet-latest",
+      max_tokens: 300,
+      temperature: 0.7,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const interpretation =
+      msg?.content?.[0]?.text?.trim() || "Yorum üretilemedi.";
+
+    const resultTraditional = modeSelected === "traditional" ? interpretation : null;
+    const resultInternal = modeSelected === "internal" ? interpretation : null;
 
     // 3) Dream kaydı
     const { data: insertedDream, error: dreamInsertErr } = await supabase
