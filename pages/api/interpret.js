@@ -43,7 +43,7 @@ Use soft phrasing like "in some classical sources..." and avoid certainty.`;
 Do not sound clinical. Focus on emotions and personal meaning.`;
 
   const modeText = modeSelected === "traditional" ? traditional : internal;
-  return `${master}\n\n${modeText}\n\nDream:\n${dreamText}`;
+  return `${master}\n\n${modeText}\n\nUser dream text (may be written without Turkish characters but keep the intended language):\n${dreamText}`;
 }
 
 export default async function handler(req, res) {
