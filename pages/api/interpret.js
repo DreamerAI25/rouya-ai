@@ -28,7 +28,8 @@ Rules:
 - No medical or psychological diagnosis.
 - Warm, calm, human tone.
 - Under 180 words.
-- End with ONE gentle reflective question.`;
+- End with ONE gentle reflective question.
+- Always respond in the same language as the user's dream text.`;
 
   const traditional = `Interpret the dream using a traditional cultural perspective.
 Use soft phrasing like "in some classical sources..." and avoid certainty.`;
