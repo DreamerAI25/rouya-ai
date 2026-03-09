@@ -67,6 +67,12 @@ if (req.method === "OPTIONS") {
     const anonKey = (body.anonKey || "").toString() || null;
     const compare = (body.compare || "0").toString() === "1";
 
+    const isPublic =
+  body.is_public === true ||
+  body.is_public === "true" ||
+  body.is_public === 1 ||
+  body.is_public === "1";
+
     if (!dreamText) return res.status(400).json({ error: "dreamText is required" });
     if (!["traditional", "internal"].includes(modeSelected)) {
       return res.status(400).json({ error: "mode must be 'traditional' or 'internal'" });
@@ -190,13 +196,14 @@ if (req.method === "OPTIONS") {
     // 3) DB'ye kaydet
     const { data: insertedDream, error: dreamInsertErr } = await supabase
       .from("dreams")
-      .insert({
-        user_id: userId,
-        dream_text: dreamText,
-        mode_selected: modeSelected,
-        result_traditional: resultTraditional,
-        result_internal: resultInternal,
-      })
+.insert({
+  user_id: userId,
+  dream_text: dreamText,
+  mode_selected: modeSelected,
+  result_traditional: resultTraditional,
+  result_internal: resultInternal,
+  is_public: isPublic,
+})
       .select("id, created_at")
       .single();
 
@@ -208,6 +215,7 @@ if (req.method === "OPTIONS") {
       createdAt: insertedDream.created_at,
       compare,
       modeSelected,
+      is_public: isPublic,
       traditional: resultTraditional,
       internal: resultInternal,
     });
