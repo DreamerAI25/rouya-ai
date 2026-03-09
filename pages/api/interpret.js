@@ -168,7 +168,7 @@ if (req.method === "OPTIONS") {
       const prompt = buildPrompt(mode, dreamText);
       const msg = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 300,
+        max_tokens: 700,
         temperature: 0.7,
         messages: [{ role: "user", content: prompt }],
       });
