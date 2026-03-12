@@ -68,10 +68,16 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!dreamRow) {
+   if (!dreamRow) {
+  const { data: sampleDreams } = await supabase
+    .from("dreams")
+    .select("id")
+    .limit(5);
+
   return res.status(404).json({
     error: "Dream not found",
-    receivedDreamId: dreamId
+    receivedDreamId: dreamId,
+    sampleDreamIds: sampleDreams || []
   });
 }
 
