@@ -69,11 +69,13 @@ export default async function handler(req, res) {
     }
 
     if (!dreamRow) {
-      return res.status(404).json({
-        error: "Dream not found",
-        dreamId
-      });
-    }
+  return res.status(404).json({
+    error: "Dream not found",
+    receivedDreamId: dreamId
+  });
+}
+
+Böylece hangi id gel
 
     let existing = null;
     let existingError = null;
