@@ -25,21 +25,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const body =
+      typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
 
-    const dreamId = (body.dreamId || "").toString().trim();
+    const dreamId = String(body.dreamId || "").trim();
 
     const rawUserId = body.userId;
     const rawAnonKey = body.anonKey;
 
     const userId =
       rawUserId && rawUserId !== "null" && rawUserId !== "undefined"
-        ? rawUserId.toString().trim()
+        ? String(rawUserId).trim()
         : null;
 
     const anonKey =
       rawAnonKey && rawAnonKey !== "null" && rawAnonKey !== "undefined"
-        ? rawAnonKey.toString().trim()
+        ? String(rawAnonKey).trim()
         : null;
 
     if (!dreamId) {
@@ -48,115 +49,121 @@ export default async function handler(req, res) {
 
     if (!userId && !anonKey) {
       return res.status(400).json({
-        error: "Either userId or anonKey is required"
+        error: "Either userId or anonKey is required",
       });
     }
 
     const supabase = getSupabaseAdmin();
 
-    // Önce dream gerçekten var mı kontrol et
-    const { data: dreamRow, error: dreamCheckError } = await supabase
+    const { data: dreamRow, error: dreamError } = await supabase
       .from("dreams")
       .select("id")
       .eq("id", dreamId)
       .maybeSingle();
 
-    if (dreamCheckError) {
+    if (dreamError) {
       return res.status(500).json({
         error: "Dream lookup failed",
-        detail: dreamCheckError.message
+        detail: dreamError.message,
       });
     }
 
-   if (!dreamRow) {
-  const { data: sampleDreams } = await supabase
-    .from("dreams")
-    .select("id")
-    .limit(5);
+    if (!dreamRow) {
+      const { data: sampleDreams, error: sampleError } = await supabase
+        .from("dreams")
+        .select("id")
+        .limit(5);
 
-  return res.status(404).json({
-    error: "Dream not found",
-    receivedDreamId: dreamId,
-    sampleDreamIds: sampleDreams || []
-  });
-}
+      return res.status(404).json({
+        error: "Dream not found",
+        receivedDreamId: dreamId,
+        sampleDreamIds: sampleError ? [] : sampleDreams || [],
+      });
+    }
 
-Böylece hangi id gel
-
-    let existing = null;
-    let existingError = null;
+    let existingLike = null;
 
     if (userId) {
-      const result = await supabase
+      const { data, error } = await supabase
         .from("dream_likes")
         .select("id")
         .eq("dream_id", dreamId)
         .eq("user_id", userId)
         .maybeSingle();
 
-      existing = result.data;
-      existingError = result.error;
+      if (error) {
+        return res.status(500).json({
+          error: "Existing user like lookup failed",
+          detail: error.message,
+        });
+      }
+
+      existingLike = data;
     } else {
-      const result = await supabase
+      const { data, error } = await supabase
         .from("dream_likes")
         .select("id")
         .eq("dream_id", dreamId)
         .eq("anon_key", anonKey)
         .maybeSingle();
 
-      existing = result.data;
-      existingError = result.error;
+      if (error) {
+        return res.status(500).json({
+          error: "Existing anon like lookup failed",
+          detail: error.message,
+        });
+      }
+
+      existingLike = data;
     }
 
-    if (existingError) {
-      return res.status(500).json({
-        error: "Existing like lookup failed",
-        detail: existingError.message
-      });
-    }
-
+    let liked = false;
     let action = "liked";
 
-    if (existing) {
+    if (existingLike) {
       const { error: deleteError } = await supabase
         .from("dream_likes")
         .delete()
-        .eq("id", existing.id);
+        .eq("id", existingLike.id);
 
       if (deleteError) {
         return res.status(500).json({
           error: "Delete like failed",
-          detail: deleteError.message
+          detail: deleteError.message,
         });
       }
 
+      liked = false;
       action = "unliked";
     } else {
       const insertPayload = {
         dream_id: dreamId,
         user_id: userId,
-        anon_key: anonKey
+        anon_key: anonKey,
       };
 
       const { data: insertedLike, error: insertError } = await supabase
         .from("dream_likes")
         .insert(insertPayload)
-        .select("id, dream_id, user_id, anon_key")
+        .select("id")
         .single();
 
       if (insertError) {
         return res.status(500).json({
           error: "Insert like failed",
           detail: insertError.message,
-          payload: insertPayload
+          payload: insertPayload,
         });
       }
 
       if (!insertedLike) {
         return res.status(500).json({
-          error: "Insert returned no row"
+          error: "Insert returned no row",
         });
       }
+
+      liked = true;
+      action = "liked";
     }
 
     const { count, error: countError } = await supabase
@@ -167,22 +174,21 @@ Böylece hangi id gel
     if (countError) {
       return res.status(500).json({
         error: "Count likes failed",
-        detail: countError.message
+        detail: countError.message,
       });
     }
 
     return res.status(200).json({
       ok: true,
-      action,
       dreamId,
+      action,
+      liked,
       likes: count || 0,
-      liked: action === "liked"
     });
-
   } catch (e) {
     return res.status(500).json({
       error: "Server error",
-      detail: e?.message || String(e)
+      detail: e?.message || String(e),
     });
   }
 }
