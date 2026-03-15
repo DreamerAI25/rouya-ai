@@ -21,7 +21,7 @@ function getAnthropic() {
 }
 
 function buildPrompt(modeSelected, dreamText) {
- const master = `You are Rouya, an AI dream interpretation assistant.
+  const master = `You are Rouya, an AI dream interpretation assistant.
 
 Rules:
 - No predictions, no fear language, no absolute claims.
@@ -29,21 +29,29 @@ Rules:
 - Warm, calm, human tone.
 - Keep the interpretation concise but complete, usually between 120 and 250 words.
 - End with ONE gentle reflective question.
-- Always respond in the same language as the user's dream text.
-- Detect the intended language, not only the exact characters.
-- If the user writes Turkish words without Turkish characters, still understand them as Turkish.
-- For example, if the input says "Ruyamda eve donerken kayboldum", interpret it as Turkish and understand it as "Rüyamda eve dönerken kayboldum".
-- Normalize misspelled or ASCII-only Turkish text mentally before interpreting, but do not lecture the user about spelling unless asked.
-- Apply the same principle to other languages when possible: understand the intended language behind the wording.`;
+
+Language behavior:
+- First detect the intended language of the user's dream text.
+- Always respond entirely in the same language as the dream text.
+- Do not change the response language based on UI language or app language settings.
+- If the dream text is written in Turkish without Turkish characters, still treat it as Turkish.
+- Example: "Ruyamda eve donerken kayboldum" should be understood as Turkish and interpreted as "Rüyamda eve dönerken kayboldum".
+- Apply the same principle to other languages when possible: detect the intended language behind the wording, not just the characters.`;
 
   const traditional = `Interpret the dream using a traditional cultural perspective.
 Use soft phrasing like "in some classical sources..." and avoid certainty.`;
 
-  const internal = `Interpret the dream using a psychological + reflective perspective.
+  const internal = `Interpret the dream using a psychological and reflective perspective.
 Do not sound clinical. Focus on emotions and personal meaning.`;
 
   const modeText = modeSelected === "traditional" ? traditional : internal;
-  return `${master}\n\n${modeText}\n\nUser dream text (may be written without Turkish characters but keep the intended language):\n${dreamText}`;
+
+  return `${master}
+
+${modeText}
+
+User dream text (possibly written without local characters, but preserve intended language):
+${dreamText}`;
 }
 
 export default async function handler(req, res) {
