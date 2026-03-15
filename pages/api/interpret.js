@@ -1,24 +1,51 @@
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
 
-const LIMITS = {
-  free: { dreams: 3, images: 0 },
-  plus: { dreams: 20, images: 10 },
-  premium: { dreams: 50, images: 20 },
-};
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-function getSupabaseAdmin() {
-  const url = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  return createClient(url, serviceKey);
+/* ---------------------------------- */
+/* MODE NORMALIZATION */
+/* ---------------------------------- */
+
+function normalizeMode(input) {
+  const value = String(input || "").trim().toLowerCase();
+
+  if (!value) return null;
+
+  // exact backend values
+  if (value === "traditional") return "traditional";
+  if (value === "internal") return "internal";
+
+  // Turkish labels
+  if (value === "geleneksel yorum") return "traditional";
+  if (value === "içsel yansıtıcı yorum") return "internal";
+  if (value === "icsel yansitici yorum") return "internal";
+
+  // English labels
+  if (value === "traditional interpretation") return "traditional";
+  if (value === "reflective interpretation") return "internal";
+  if (value === "inner reflective interpretation") return "internal";
+
+  // Arabic labels
+  if (value === "التفسير التقليدي") return "traditional";
+  if (value === "التفسير التأملي") return "internal";
+
+  // loose matching
+  if (value.includes("traditional")) return "traditional";
+  if (value.includes("reflective")) return "internal";
+  if (value.includes("geleneksel")) return "traditional";
+  if (value.includes("yansıtıcı") || value.includes("yansitici")) return "internal";
+  if (value.includes("التقليدي")) return "traditional";
+  if (value.includes("التأملي")) return "internal";
+
+  return null;
 }
 
-function getAnthropic() {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error("Missing ANTHROPIC_API_KEY env var.");
-  return new Anthropic({ apiKey: key });
-}
+/* ---------------------------------- */
+/* PROMPT BUILDER */
+/* ---------------------------------- */
 
 function buildPrompt(modeSelected, dreamText) {
   const master = `You are Rouya, an AI dream interpretation assistant.
@@ -27,22 +54,20 @@ Rules:
 - No predictions, no fear language, no absolute claims.
 - No medical or psychological diagnosis.
 - Warm, calm, human tone.
-- Keep the interpretation concise but complete, usually between 120 and 250 words.
+- Keep the interpretation concise but meaningful (120–250 words).
 - End with ONE gentle reflective question.
 
 Language behavior:
-- First detect the intended language of the user's dream text.
-- Always respond entirely in the same language as the dream text.
-- Do not change the response language based on UI language or app language settings.
-- If the dream text is written in Turkish without Turkish characters, still treat it as Turkish.
-- Example: "Ruyamda eve donerken kayboldum" should be understood as Turkish and interpreted as "Rüyamda eve dönerken kayboldum".
-- Apply the same principle to other languages when possible: detect the intended language behind the wording, not just the characters.`;
+- First detect the intended language of the dream text.
+- Always respond entirely in that same language.
+- Ignore UI language.
+- If Turkish is written without special characters (example: "Ruyamda eve donerken kayboldum"), still treat it as Turkish.`;
 
   const traditional = `Interpret the dream using a traditional cultural perspective.
-Use soft phrasing like "in some classical sources..." and avoid certainty.`;
+Use soft phrasing such as "in some classical sources..." and avoid certainty.`;
 
   const internal = `Interpret the dream using a psychological and reflective perspective.
-Do not sound clinical. Focus on emotions and personal meaning.`;
+Focus on emotions and personal meaning rather than prediction.`;
 
   const modeText = modeSelected === "traditional" ? traditional : internal;
 
@@ -50,184 +75,227 @@ Do not sound clinical. Focus on emotions and personal meaning.`;
 
 ${modeText}
 
-User dream text (possibly written without local characters, but preserve intended language):
+Dream text:
 ${dreamText}`;
 }
 
-export default async function handler(req, res) {
-res.setHeader("Access-Control-Allow-Origin", "*");
-res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+/* ---------------------------------- */
+/* MONTH KEY */
+/* ---------------------------------- */
 
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
+function getMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
+
+/* ---------------------------------- */
+/* HANDLER */
+/* ---------------------------------- */
+
+export default async function handler(req, res) {
   try {
-    const isPost = req.method === "POST";
-    const isGet = req.method === "GET";
-    if (!isPost && !isGet) return res.status(405).json({ error: "Method not allowed" });
-
-    const body = isPost ? req.body : req.query;
-
-    const dreamText = (body.dreamText || "").toString().trim();
-    const modeSelected = (body.mode || "traditional").toString(); // traditional | internal
-    const userId = body.userId ? body.userId.toString() : null;
-    const anonKey = (body.anonKey || "").toString() || null;
-    const compare = (body.compare || "0").toString() === "1";
-
-    const isPublic =
-  body.is_public === true ||
-  body.is_public === "true" ||
-  body.is_public === 1 ||
-  body.is_public === "1";
-
-    if (!dreamText) return res.status(400).json({ error: "dreamText is required" });
-    if (!["traditional", "internal"].includes(modeSelected)) {
-      return res.status(400).json({ error: "mode must be 'traditional' or 'internal'" });
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
     }
 
-    const supabase = getSupabaseAdmin();
+    const body = req.body || {};
+    const dreamText = (body.dreamText || "").trim();
+    const rawMode = body.mode || "traditional";
+    const compare = Boolean(body.compare);
+    const anonKey = body.anonKey;
+    const userId = body.userId;
 
-    // 1) Anon kullanıcı: 1 adet hak
-    if (!userId) {
-      if (!anonKey) {
-        return res.status(400).json({ error: "anonKey is required when userId is not provided" });
-      }
-
-      const { data: anonRow, error: anonReadErr } = await supabase
-        .from("anon_usage")
-        .select("used_count")
-        .eq("anon_key", anonKey)
-        .maybeSingle();
-
-      if (anonReadErr) return res.status(500).json({ error: "anon_usage read failed", detail: anonReadErr.message });
-
-      const usedCount = anonRow?.used_count ?? 0;
-      if (usedCount >= 1) {
-        return res.status(403).json({
-          error: "Free limit reached",
-          message: "Bir rüya hakkını kullandın. Devam etmek için üyelik oluşturmalısın.",
-        });
-      }
-
-      if (!anonRow) {
-        const { error: insErr } = await supabase.from("anon_usage").insert({ anon_key: anonKey, used_count: 1 });
-        if (insErr) return res.status(500).json({ error: "anon_usage insert failed", detail: insErr.message });
-      } else {
-        const { error: updErr } = await supabase
-          .from("anon_usage")
-          .update({ used_count: usedCount + 1, updated_at: new Date().toISOString() })
-          .eq("anon_key", anonKey);
-        if (updErr) return res.status(500).json({ error: "anon_usage update failed", detail: updErr.message });
-      }
+    if (!dreamText) {
+      return res.status(400).json({ error: "dreamText required" });
     }
 
-    // 1.5) Login kullanıcı için aylık limit kontrolü
+    const modeSelected = normalizeMode(rawMode);
+
+    if (!modeSelected) {
+      return res.status(400).json({
+        error: "mode must be 'traditional' or 'internal'",
+        receivedMode: rawMode
+      });
+    }
+
+    const monthKey = getMonthKey();
+
+    /* ---------------------------------- */
+    /* USER MODE (LOGGED IN) */
+    /* ---------------------------------- */
+
     if (userId) {
-      const monthKey = new Date().toISOString().slice(0, 7);
-
-      let { data: profile, error: profileErr } = await supabase
+      let { data: profile } = await supabase
         .from("profiles")
-        .select("plan, dreams_used_month, images_used_month, month_key")
+        .select("*")
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (profileErr) return res.status(500).json({ error: "profiles read failed", detail: profileErr.message });
-
       if (!profile) {
-        const { data: created, error: createErr } = await supabase
-          .from("profiles")
-          .insert({ user_id: userId, plan: "free", dreams_used_month: 0, images_used_month: 0, month_key: monthKey, prefs: {} })
-          .select("plan, dreams_used_month, images_used_month, month_key")
-          .single();
-        if (createErr) return res.status(500).json({ error: "profiles insert failed", detail: createErr.message });
-        profile = created;
+        await supabase.from("profiles").insert({
+          user_id: userId,
+          plan: "free",
+          dreams_used_month: 0,
+          images_used_month: 0,
+          month_key: monthKey
+        });
+
+        profile = {
+          plan: "free",
+          dreams_used_month: 0,
+          month_key: monthKey
+        };
       }
 
       if (profile.month_key !== monthKey) {
-        const { data: resetProfile, error: resetErr } = await supabase
+        await supabase
           .from("profiles")
-          .update({ dreams_used_month: 0, images_used_month: 0, month_key: monthKey, updated_at: new Date().toISOString() })
-          .eq("user_id", userId)
-          .select("plan, dreams_used_month, images_used_month, month_key")
-          .single();
-        if (resetErr) return res.status(500).json({ error: "profiles reset failed", detail: resetErr.message });
-        profile = resetProfile;
+          .update({
+            dreams_used_month: 0,
+            month_key: monthKey
+          })
+          .eq("user_id", userId);
+
+        profile.dreams_used_month = 0;
       }
 
-      const plan = (profile.plan || "free").toLowerCase();
-      const limits = LIMITS[plan] || LIMITS.free;
-
-      if ((profile.dreams_used_month ?? 0) >= limits.dreams) {
+      if (profile.plan === "free" && profile.dreams_used_month >= 3) {
         return res.status(403).json({
           error: "Monthly limit reached",
-          message: `Bu ayki rüya hakkın doldu (${limits.dreams}). Plus veya Premium'a geçebilirsin.`,
-          plan,
-          limit: limits.dreams,
+          message: "Bu ayki rüya hakkın doldu (3). Plus veya Premium'a geçebilirsin.",
+          plan: "free",
+          limit: 3
         });
       }
 
-      const { error: incErr } = await supabase
+      await supabase
         .from("profiles")
-        .update({ dreams_used_month: (profile.dreams_used_month ?? 0) + 1, updated_at: new Date().toISOString() })
+        .update({
+          dreams_used_month: profile.dreams_used_month + 1
+        })
         .eq("user_id", userId);
-
-      if (incErr) return res.status(500).json({ error: "profiles increment failed", detail: incErr.message });
     }
 
-    // 2) Claude ile yorum(lar)
-    const anthropic = getAnthropic();
+    /* ---------------------------------- */
+    /* ANON MODE */
+    /* ---------------------------------- */
 
-    async function runClaude(mode) {
-      const prompt = buildPrompt(mode, dreamText);
-      const msg = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 700,
-        temperature: 0.7,
-        messages: [{ role: "user", content: prompt }],
-      });
-      return msg?.content?.[0]?.text?.trim() || "Yorum üretilemedi.";
+    if (!userId) {
+      const { data: anonRow } = await supabase
+        .from("anon_usage")
+        .select("*")
+        .eq("anon_key", anonKey)
+        .eq("month_key", monthKey)
+        .maybeSingle();
+
+      if (anonRow && anonRow.used_count >= 1) {
+        return res.status(403).json({
+          error: "Free limit reached",
+          message: "Bir rüya hakkını kullandın. Devam etmek için üyelik oluşturmalısın."
+        });
+      }
+
+      if (anonRow) {
+        await supabase
+          .from("anon_usage")
+          .update({
+            used_count: anonRow.used_count + 1
+          })
+          .eq("id", anonRow.id);
+      } else {
+        await supabase.from("anon_usage").insert({
+          anon_key: anonKey,
+          used_count: 1,
+          month_key: monthKey
+        });
+      }
     }
 
-    let resultTraditional = null;
-    let resultInternal = null;
+    /* ---------------------------------- */
+    /* CLAUDE CALL */
+/* ---------------------------------- */
 
-    if (compare) {
-      resultTraditional = await runClaude("traditional");
-      resultInternal = await runClaude("internal");
-    } else {
-      const single = await runClaude(modeSelected);
-      resultTraditional = modeSelected === "traditional" ? single : null;
-      resultInternal = modeSelected === "internal" ? single : null;
-    }
+const prompt = buildPrompt(modeSelected, dreamText);
 
-    // 3) DB'ye kaydet
-    const { data: insertedDream, error: dreamInsertErr } = await supabase
-      .from("dreams")
-.insert({
-  user_id: userId,
+const response = await fetch("https://api.anthropic.com/v1/messages", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": process.env.CLAUDE_API_KEY,
+    "anthropic-version": "2023-06-01"
+  },
+  body: JSON.stringify({
+    model: "claude-3-5-sonnet-latest",
+    max_tokens: 800,
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]
+  })
+});
+
+const data = await response.json();
+
+if (!data || !data.content || !data.content.length) {
+  return res.status(500).json({
+    error: "Claude response empty",
+    raw: data
+  });
+}
+
+const interpretation = data.content[0].text;
+
+
+    /* ---------------------------------- */
+    /* SAVE DREAM */
+/* ---------------------------------- */
+
+const insertPayload = {
   dream_text: dreamText,
   mode_selected: modeSelected,
-  result_traditional: resultTraditional,
-  result_internal: resultInternal,
-  is_public: isPublic,
-})
-      .select("id, created_at")
-      .single();
+  result_traditional: modeSelected === "traditional" ? interpretation : null,
+  result_internal: modeSelected === "internal" ? interpretation : null,
+  user_id: userId || null,
+  anon_key: userId ? null : anonKey
+};
 
-    if (dreamInsertErr) return res.status(500).json({ error: "dream insert failed", detail: dreamInsertErr.message });
+const { data: insertedDream, error: insertError } = await supabase
+  .from("dreams")
+  .insert(insertPayload)
+  .select()
+  .single();
 
-    return res.status(200).json({
-      ok: true,
-      dreamId: insertedDream.id,
-      createdAt: insertedDream.created_at,
-      compare,
-      modeSelected,
-      is_public: isPublic,
-      traditional: resultTraditional,
-      internal: resultInternal,
+if (insertError) {
+  return res.status(500).json({
+    error: "Dream insert failed",
+    detail: insertError.message
+  });
+}
+
+
+    /* ---------------------------------- */
+    /* RESPONSE */
+/* ---------------------------------- */
+
+return res.status(200).json({
+  ok: true,
+  dreamId: insertedDream?.id || null,
+  createdAt: insertedDream?.created_at || new Date().toISOString(),
+  compare,
+  modeSelected,
+  traditional: modeSelected === "traditional" ? interpretation : null,
+  internal: modeSelected === "internal" ? interpretation : null
+});
+
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: "Server error",
+      detail: error.message
     });
-  } catch (e) {
-    return res.status(500).json({ error: "Server error", detail: e?.message || String(e) });
   }
 }
