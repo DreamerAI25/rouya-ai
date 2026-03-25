@@ -34,6 +34,18 @@ function normalizeMode(input) {
   return null;
 }
 
+function normalizeDream(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function generateFingerprint(userId, dreamText, mode) {
+  const normalized = normalizeDream(dreamText);
+  return `${userId}:${mode}:${normalized}`;
+}
+
 function buildPrompt(modeSelected, dreamText) {
   const master = `You are Rouya, an AI dream interpretation assistant.
 
@@ -108,6 +120,46 @@ export default async function handler(req, res) {
       });
     }
 
+    // Duplicate protection for logged-in users
+    let fingerprint = null;
+
+    if (userId) {
+      fingerprint = generateFingerprint(userId, dreamText, modeSelected);
+
+      const { data: existing, error: existingError } = await supabase
+        .from("dreams")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("dream_fingerprint", fingerprint)
+        .gte(
+          "created_at",
+          new Date(Date.now() - 10 * 60 * 1000).toISOString()
+        )
+        .limit(1);
+
+      if (existingError) {
+        return res.status(500).json({
+          error: "Duplicate check failed",
+          detail: existingError.message
+        });
+      }
+
+      if (existing && existing.length > 0) {
+        const d = existing[0];
+
+        return res.status(200).json({
+          ok: true,
+          duplicate: true,
+          dreamId: d.id,
+          createdAt: d.created_at,
+          compare,
+          modeSelected,
+          traditional: d.result_traditional,
+          internal: d.result_internal
+        });
+      }
+    }
+
     const monthKey = getMonthKey();
 
     // Logged-in user flow
@@ -171,10 +223,26 @@ export default async function handler(req, res) {
         profile.dreams_used_month = 0;
       }
 
-      if (profile.plan === "free" && (profile.dreams_used_month || 0) >= 3) {
+      // Free quota check based on unique dreams in dreams table
+      const { count, error: countError } = await supabase
+        .from("dreams")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      if (countError) {
+        return res.status(500).json({
+          error: "Dream count failed",
+          detail: countError.message
+        });
+      }
+
+      const interpreted = count || 0;
+
+      if (profile.plan === "free" && interpreted >= 3) {
         return res.status(403).json({
-          error: "Monthly limit reached",
-          message: "Bu ayki rüya hakkınız doldu (3). Plus veya Premium'a geçebilirsiniz.",
+          error: "limit reached",
+          message:
+            "Ücretsiz 3 rüya hakkınızı tamamladınız. Daha fazlası için Rouya AI Plus’a geçin.",
           plan: "free",
           limit: 3
         });
@@ -294,7 +362,8 @@ export default async function handler(req, res) {
       result_traditional: modeSelected === "traditional" ? interpretation : null,
       result_internal: modeSelected === "internal" ? interpretation : null,
       user_id: userId || null,
-      is_public: false
+      is_public: false,
+      dream_fingerprint: fingerprint
     };
 
     const { data: insertedDream, error: insertError } = await supabase
