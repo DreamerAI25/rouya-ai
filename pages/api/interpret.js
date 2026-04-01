@@ -54,19 +54,67 @@ Rules:
 - No medical or psychological diagnosis.
 - Warm, calm, human tone.
 - Keep the interpretation concise but meaningful (120–250 words).
-- End with ONE gentle reflective question.
+- Do NOT ask any follow-up questions.
+- The interpretation must feel complete and final.
+
+CRITICAL STRUCTURE:
+- The interpretation MUST begin with 2 strong opening sentences.
+- These first 2 sentences should feel emotionally engaging and create curiosity.
+- They should hint at the meaning, but not reveal everything immediately.
+- After those 2 opening sentences, continue with the full interpretation.
 
 Language behavior:
 - First detect the intended language of the dream text.
 - Always respond entirely in that same language.
 - Ignore UI language.
-- If Turkish is written without special characters (example: "Ruyamda eve donerken kayboldum"), still treat it as Turkish.`;
+- If Turkish is written without special characters (example: "Ruyamda eve donerken kayboldum"), still treat it as Turkish.
 
-  const traditional = `Interpret the dream using a traditional cultural perspective.
-Use soft phrasing such as "in some classical sources..." and avoid certainty.`;
+SPECIAL INSTRUCTION FOR TURKISH:
+- If the dream text is Turkish, the first 2 opening sentences should feel more emotionally resonant and familiar to Turkish-speaking users.
+- The opening should sound natural, warm, and insightful.
+- It should feel like the interpretation is touching something personally meaningful.
+- Do not sound robotic, academic, or overly formal.
+- Do not ask a question.
+- Do not give away the full explanation in the first sentence.
 
-  const internal = `Interpret the dream using a psychological and reflective perspective.
-Focus on emotions and personal meaning rather than prediction.`;
+The first 2 sentences in Turkish should feel like:
+- they gently capture the emotional core of the dream
+- they create curiosity to keep reading
+- they sound elegant and human, not generic`;
+
+const traditional = `Interpret the dream using a traditional cultural perspective.
+
+Focus on:
+- symbols in the dream
+- familiar cultural meanings
+- classical dream symbolism
+- what the main dream elements are traditionally associated with
+
+Style:
+- warm
+- symbolic
+- clear
+- culturally grounded
+- never absolute
+
+The opening 2 sentences should hint at the symbolic importance of the dream and create curiosity to continue reading.`;
+
+const internal = `Interpret the dream using a psychological and reflective perspective.
+
+Focus on:
+- emotions in the dream
+- inner tension, desire, uncertainty, or transition
+- personal meaning rather than prediction
+
+Style:
+- reflective
+- emotionally aware
+- warm
+- insightful
+- never clinical
+- never diagnostic
+
+The opening 2 sentences should gently connect with the dreamer’s inner emotional world and create curiosity to continue reading.`;
 
   const modeText = modeSelected === "traditional" ? traditional : internal;
 
