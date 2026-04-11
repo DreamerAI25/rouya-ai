@@ -36,25 +36,32 @@ async function generateImageWithProvider(imagePrompt) {
 }
 
 export default async function handler(req, res) {
-  try {
-    const body =
-      typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+ try {
+  let body = {};
 
-    const dreamId = String(body.dreamId || "").trim();
-    const userId = String(body.userId || "").trim();
+  if (typeof req.body === "string") {
+    const trimmed = req.body.trim();
+    body = trimmed ? JSON.parse(trimmed) : {};
+  } else if (req.body && typeof req.body === "object") {
+    body = req.body;
+  }
 
-    // 🔴 STEP 1: incoming request
-    console.log("🔴 [STEP 1] Incoming request");
-    console.log("dreamId:", dreamId);
-    console.log("userId:", userId);
+  console.log("🔴 [STEP 1] Incoming raw req.body:", req.body);
+  console.log("🔴 [STEP 1] Parsed body:", body);
 
-    if (!dreamId) {
-      return res.status(400).json({ error: "dreamId missing" });
-    }
+  const dreamId = String(body.dreamId || "").trim();
+  const userId = String(body.userId || "").trim();
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId missing" });
-    }
+  console.log("dreamId:", dreamId);
+  console.log("userId:", userId);
+
+  if (!dreamId) {
+    return res.status(400).json({ error: "dreamId missing" });
+  }
+
+  if (!userId) {
+    return res.status(400).json({ error: "userId missing" });
+  }
 
     // 🔴 STEP 2: get profile
     const { data: profile, error: profileError } = await supabase
