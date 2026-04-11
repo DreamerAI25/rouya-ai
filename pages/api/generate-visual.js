@@ -29,9 +29,8 @@ async function generateImageWithProvider(prompt) {
   console.log("🟡 [STEP 6] Generating mock image");
 
   return {
-    imageUrl:
-      "https://via.placeholder.com/1024x1024.png?text=Rouya+Dream+Visual"
-  };
+  imageUrl: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1024&q=80"
+};
 }
 
 // 🔹 MAIN HANDLER
