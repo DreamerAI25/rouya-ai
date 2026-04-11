@@ -6,25 +6,20 @@ const supabase = createClient(
 );
 
 function buildImagePrompt({ dreamText, interpretation, modeSelected }) {
-  return `You are a visual prompt generator for Rouya AI.
+  return `Convert this dream into a cinematic visual scene.
 
-Task:
-Convert the following dream into a single, visually coherent image prompt.
+Style:
+- dreamy
+- cinematic
+- mystical
+- elegant
 
-Rules:
-- Create ONE strong cinematic scene
-- Keep it visually clear and not overcrowded
-- Emphasize atmosphere, lighting, symbolism, and emotion
-- Style should feel dreamy, cinematic, mystical, elegant
-- Avoid text overlays, UI elements, split screens, collages
-- Do not mention camera brands or artist names
-- Keep the prompt concise but vivid
-- Output only the final image prompt, nothing else
+Keep:
+- single scene
+- clear subject
+- strong mood and lighting
 
-Interpretation mode:
-${modeSelected}
-
-Dream text:
+Dream:
 ${dreamText}
 
 Interpretation:
@@ -32,80 +27,65 @@ ${interpretation || ""}`;
 }
 
 async function generateImageWithProvider(imagePrompt) {
-  /**
-   * TODO:
-   * Burayı daha sonra seçtiğin provider'a göre dolduracağız.
-   *
-   * Şimdilik mock response dönüyor.
-   * İlk entegrasyonda burada gerçek image generation API çağrısı olacak.
-   */
+  console.log("🟡 [STEP 6] Image provider called");
+  console.log("🟡 Prompt:", imagePrompt);
 
-  // ÖRNEK MOCK URL
   return {
-    imageUrl: "https://via.placeholder.com/1024x1024.png?text=Rouya+Dream+Visual",
-    provider: "mock"
+    imageUrl: "https://via.placeholder.com/1024x1024.png?text=Rouya+Dream+Visual"
   };
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   try {
     const body =
-      typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+      typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
 
     const dreamId = String(body.dreamId || "").trim();
     const userId = String(body.userId || "").trim();
 
+    // 🔴 STEP 1: incoming request
+    console.log("🔴 [STEP 1] Incoming request");
+    console.log("dreamId:", dreamId);
+    console.log("userId:", userId);
+
     if (!dreamId) {
-      return res.status(400).json({ error: "dreamId required" });
+      return res.status(400).json({ error: "dreamId missing" });
     }
 
     if (!userId) {
-      return res.status(400).json({ error: "userId required" });
+      return res.status(400).json({ error: "userId missing" });
     }
 
-    // 1) Kullanıcı profili ve plan kontrolü
+    // 🔴 STEP 2: get profile
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("*")
       .eq("user_id", userId)
       .maybeSingle();
 
+    console.log("🔴 [STEP 2] Profile result:", profile);
+
     if (profileError) {
-      return res.status(500).json({
-        error: "Profile lookup failed",
-        detail: profileError.message
-      });
+      console.error("❌ Profile error:", profileError);
+      return res.status(500).json({ error: "Profile fetch failed" });
     }
 
     if (!profile) {
-      return res.status(404).json({
-        error: "Profile not found"
-      });
+      return res.status(404).json({ error: "Profile not found" });
     }
 
     const plan = String(profile.plan || "free").toLowerCase();
+    console.log("🟡 [STEP 2.1] Plan:", plan);
 
+    // 🔴 STEP 3: plan check
     if (plan !== "plus" && plan !== "premium") {
+      console.log("❌ Upgrade required, plan:", plan);
       return res.status(403).json({
-        error: "upgrade required",
-        message:
-          "Rüya görselleştirme özelliği için Rouya AI Plus veya Premium paketi gerekir."
+        error: "upgrade required"
       });
     }
 
-    // 2) Rüya kaydını çek
+    // 🔴 STEP 4: get dream
     const { data: dream, error: dreamError } = await supabase
       .from("dreams")
       .select("*")
@@ -113,97 +93,46 @@ export default async function handler(req, res) {
       .eq("user_id", userId)
       .maybeSingle();
 
+    console.log("🔴 [STEP 4] Dream found:", !!dream);
+
     if (dreamError) {
-      return res.status(500).json({
-        error: "Dream lookup failed",
-        detail: dreamError.message
-      });
+      console.error("❌ Dream fetch error:", dreamError);
+      return res.status(500).json({ error: "Dream fetch failed" });
     }
 
     if (!dream) {
-      return res.status(404).json({
-        error: "Dream not found"
-      });
+      return res.status(404).json({ error: "Dream not found" });
     }
 
-    // 3) Daha önce görselleştirilmişse yeniden üretme
+    // 🔴 STEP 5: existing image check
     if (dream.image_url) {
+      console.log("🟢 [STEP 5] Reusing existing image");
+
       return res.status(200).json({
         ok: true,
         reused: true,
-        dreamId: dream.id,
-        imageUrl: dream.image_url,
-        imagePrompt: dream.image_prompt || null
+        imageUrl: dream.image_url
       });
     }
 
-    // 4) Yorumu seç
+    // 🔴 STEP 6: prepare prompt
     const interpretation =
       dream.result_internal ||
       dream.result_traditional ||
       "";
 
-    const modeSelected = dream.mode_selected || "traditional";
-    const dreamText = dream.dream_text || "";
-
-    if (!dreamText) {
-      return res.status(400).json({
-        error: "Dream text missing"
-      });
-    }
-
-    // 5) Önce görsel prompt üret
-    const promptForPromptModel = buildImagePrompt({
-      dreamText,
+    const imagePrompt = buildImagePrompt({
+      dreamText: dream.dream_text,
       interpretation,
-      modeSelected
+      modeSelected: dream.mode_selected
     });
 
-    const promptResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 400,
-        messages: [
-          {
-            role: "user",
-            content: promptForPromptModel
-          }
-        ]
-      })
-    });
+    console.log("🟡 [STEP 6] Generated image prompt:", imagePrompt);
 
-    const promptData = await promptResponse.json();
-
-    if (!promptResponse.ok) {
-      return res.status(500).json({
-        error: "Image prompt generation failed",
-        detail: promptData
-      });
-    }
-
-    if (!promptData?.content?.length) {
-      return res.status(500).json({
-        error: "Empty image prompt response",
-        detail: promptData
-      });
-    }
-
-    const imagePrompt = String(promptData.content[0].text || "").trim();
-
-    if (!imagePrompt) {
-      return res.status(500).json({
-        error: "Generated image prompt is empty"
-      });
-    }
-
-    // 6) Seçilen provider ile görsel üret
+    // 🔴 STEP 7: call provider
     const generated = await generateImageWithProvider(imagePrompt);
+
+    console.log("🟡 [STEP 7] Provider response:", generated);
 
     if (!generated?.imageUrl) {
       return res.status(500).json({
@@ -211,36 +140,35 @@ export default async function handler(req, res) {
       });
     }
 
-    // 7) Dreams tablosuna kaydet
-    const { data: updatedDream, error: updateError } = await supabase
+    // 🔴 STEP 8: save to DB
+    const { error: updateError } = await supabase
       .from("dreams")
       .update({
         image_prompt: imagePrompt,
         image_url: generated.imageUrl
       })
-      .eq("id", dream.id)
-      .eq("user_id", userId)
-      .select()
-      .single();
+      .eq("id", dreamId)
+      .eq("user_id", userId);
+
+    console.log("🟢 [STEP 8] Saved image_url:", generated.imageUrl);
 
     if (updateError) {
+      console.error("❌ Update error:", updateError);
       return res.status(500).json({
-        error: "Dream update failed",
-        detail: updateError.message
+        error: "DB update failed"
       });
     }
 
     return res.status(200).json({
       ok: true,
-      reused: false,
-      dreamId: updatedDream.id,
-      imageUrl: updatedDream.image_url,
-      imagePrompt: updatedDream.image_prompt
+      imageUrl: generated.imageUrl
     });
-  } catch (error) {
+  } catch (err) {
+    console.error("💥 [FATAL ERROR]:", err);
+
     return res.status(500).json({
       error: "Server error",
-      detail: error.message
+      detail: err.message
     });
   }
 }
