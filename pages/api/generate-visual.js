@@ -1,11 +1,3 @@
-res.setHeader("Access-Control-Allow-Origin", "*");
-res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
-}
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -13,115 +5,119 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-function buildImagePrompt({ dreamText, interpretation, modeSelected }) {
-  return `Convert this dream into a cinematic visual scene.
+// 🔹 IMAGE PROMPT BUILDER
+function buildImagePrompt({ dreamText, interpretation }) {
+  return `Create a cinematic dream scene.
 
 Style:
 - dreamy
-- cinematic
 - mystical
-- elegant
+- cinematic lighting
+- emotional atmosphere
 
-Keep:
-- single scene
-- clear subject
-- strong mood and lighting
-
-Dream:
+Scene:
 ${dreamText}
 
-Interpretation:
-${interpretation || ""}`;
+Meaning:
+${interpretation || ""}
+
+Single clear visual moment.`;
 }
 
-async function generateImageWithProvider(imagePrompt) {
-  console.log("🟡 [STEP 6] Image provider called");
-  console.log("🟡 Prompt:", imagePrompt);
+// 🔹 MOCK IMAGE GENERATOR (SAFE)
+async function generateImageWithProvider(prompt) {
+  console.log("🟡 [STEP 6] Generating mock image");
 
   return {
-    imageUrl: "https://via.placeholder.com/1024x1024.png?text=Rouya+Dream+Visual"
+    imageUrl:
+      "https://via.placeholder.com/1024x1024.png?text=Rouya+Dream+Visual"
   };
 }
 
+// 🔹 MAIN HANDLER
 export default async function handler(req, res) {
- try {
-  let body = {};
+  // ✅ CORS SAFE
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (typeof req.body === "string") {
-    const trimmed = req.body.trim();
-    body = trimmed ? JSON.parse(trimmed) : {};
-  } else if (req.body && typeof req.body === "object") {
-    body = req.body;
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
-  console.log("🔴 [STEP 1] Incoming raw req.body:", req.body);
-  console.log("🔴 [STEP 1] Parsed body:", body);
-
-  const dreamId = String(body.dreamId || "").trim();
-  const userId = String(body.userId || "").trim();
-
-  console.log("dreamId:", dreamId);
-  console.log("userId:", userId);
-
-  if (!dreamId) {
-    return res.status(400).json({ error: "dreamId missing" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (!userId) {
-    return res.status(400).json({ error: "userId missing" });
-  }
+  try {
+    // ✅ SAFE BODY PARSE
+    let body = {};
 
-    // 🔴 STEP 2: get profile
+    if (req.body && typeof req.body === "object") {
+      body = req.body;
+    }
+
+    console.log("🔴 Incoming body:", body);
+
+    const dreamId = body?.dreamId;
+    const userId = body?.userId;
+
+    console.log("🔴 dreamId:", dreamId);
+    console.log("🔴 userId:", userId);
+
+    if (!dreamId) {
+      return res.status(400).json({ error: "dreamId missing" });
+    }
+
+    if (!userId) {
+      return res.status(400).json({ error: "userId missing" });
+    }
+
+    // 🔹 GET USER PROFILE
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("*")
       .eq("user_id", userId)
-      .maybeSingle();
+      .single();
 
-    console.log("🔴 [STEP 2] Profile result:", profile);
+    console.log("🟡 profile:", profile);
 
     if (profileError) {
-      console.error("❌ Profile error:", profileError);
-      return res.status(500).json({ error: "Profile fetch failed" });
+      console.error("❌ profile error:", profileError);
+      return res.status(500).json({ error: "profile fetch failed" });
     }
 
-    if (!profile) {
-      return res.status(404).json({ error: "Profile not found" });
-    }
+    const plan = String(profile?.plan || "free").toLowerCase();
+    console.log("🟡 plan:", plan);
 
-    const plan = String(profile.plan || "free").toLowerCase();
-    console.log("🟡 [STEP 2.1] Plan:", plan);
-
-    // 🔴 STEP 3: plan check
     if (plan !== "plus" && plan !== "premium") {
-      console.log("❌ Upgrade required, plan:", plan);
       return res.status(403).json({
         error: "upgrade required"
       });
     }
 
-    // 🔴 STEP 4: get dream
+    // 🔹 GET DREAM
     const { data: dream, error: dreamError } = await supabase
       .from("dreams")
       .select("*")
       .eq("id", dreamId)
       .eq("user_id", userId)
-      .maybeSingle();
+      .single();
 
-    console.log("🔴 [STEP 4] Dream found:", !!dream);
+    console.log("🟡 dream found:", !!dream);
 
     if (dreamError) {
-      console.error("❌ Dream fetch error:", dreamError);
-      return res.status(500).json({ error: "Dream fetch failed" });
+      console.error("❌ dream error:", dreamError);
+      return res.status(500).json({ error: "dream fetch failed" });
     }
 
     if (!dream) {
-      return res.status(404).json({ error: "Dream not found" });
+      return res.status(404).json({ error: "dream not found" });
     }
 
-    // 🔴 STEP 5: existing image check
+    // 🔹 REUSE EXISTING IMAGE
     if (dream.image_url) {
-      console.log("🟢 [STEP 5] Reusing existing image");
+      console.log("🟢 using existing image");
 
       return res.status(200).json({
         ok: true,
@@ -130,7 +126,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔴 STEP 6: prepare prompt
+    // 🔹 BUILD PROMPT
     const interpretation =
       dream.result_internal ||
       dream.result_traditional ||
@@ -138,24 +134,23 @@ export default async function handler(req, res) {
 
     const imagePrompt = buildImagePrompt({
       dreamText: dream.dream_text,
-      interpretation,
-      modeSelected: dream.mode_selected
+      interpretation
     });
 
-    console.log("🟡 [STEP 6] Generated image prompt:", imagePrompt);
+    console.log("🟡 imagePrompt:", imagePrompt);
 
-    // 🔴 STEP 7: call provider
+    // 🔹 GENERATE IMAGE
     const generated = await generateImageWithProvider(imagePrompt);
 
-    console.log("🟡 [STEP 7] Provider response:", generated);
+    console.log("🟡 provider response:", generated);
 
     if (!generated?.imageUrl) {
       return res.status(500).json({
-        error: "Image generation failed"
+        error: "image generation failed"
       });
     }
 
-    // 🔴 STEP 8: save to DB
+    // 🔹 SAVE TO DB
     const { error: updateError } = await supabase
       .from("dreams")
       .update({
@@ -165,24 +160,24 @@ export default async function handler(req, res) {
       .eq("id", dreamId)
       .eq("user_id", userId);
 
-    console.log("🟢 [STEP 8] Saved image_url:", generated.imageUrl);
-
     if (updateError) {
-      console.error("❌ Update error:", updateError);
+      console.error("❌ update error:", updateError);
       return res.status(500).json({
-        error: "DB update failed"
+        error: "db update failed"
       });
     }
+
+    console.log("🟢 saved image");
 
     return res.status(200).json({
       ok: true,
       imageUrl: generated.imageUrl
     });
   } catch (err) {
-    console.error("💥 [FATAL ERROR]:", err);
+    console.error("💥 FATAL:", err);
 
     return res.status(500).json({
-      error: "Server error",
+      error: "server error",
       detail: err.message
     });
   }
