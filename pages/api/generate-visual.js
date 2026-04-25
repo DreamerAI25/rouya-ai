@@ -7,21 +7,37 @@ const supabase = createClient(
 
 // 🔹 IMAGE PROMPT BUILDER
 function buildImagePrompt({ dreamText, interpretation }) {
-  return `Create a cinematic dream scene.
+  return `Create a cinematic, dreamlike visual scene based on the following dream.
 
 Style:
-- dreamy
-- mystical
+- surreal
 - cinematic lighting
+- soft glow
+- high detail
 - emotional atmosphere
+- dreamlike composition
+- volumetric light
+- slightly mystical
 
-Scene:
+Rules:
+- single clear scene
+- no text, no UI, no collage
+- no multiple panels
+- no distortion or broken anatomy
+
+Focus:
+- capture the emotional core of the dream
+- use symbolic elements naturally
+- keep composition elegant and balanced
+
+Dream:
 ${dreamText}
 
 Meaning:
 ${interpretation || ""}
 
-Single clear visual moment.`;
+Output:
+A single beautiful, cinematic dream scene.`;
 }
 
 // 🔹 MOCK IMAGE GENERATOR (SAFE)
