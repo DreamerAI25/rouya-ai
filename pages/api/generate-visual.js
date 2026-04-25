@@ -26,11 +26,38 @@ Single clear visual moment.`;
 
 // 🔹 MOCK IMAGE GENERATOR (SAFE)
 async function generateImageWithProvider(prompt) {
-  console.log("🟡 [STEP 6] Generating mock image");
+  console.log("🟡 Generating real image with OpenAI");
+
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "gpt-image-1",
+      prompt: prompt,
+      size: "1024x1024"
+    })
+  });
+
+  const data = await response.json();
+
+  console.log("🟡 OpenAI image response:", data);
+
+  if (!response.ok) {
+    throw new Error("OpenAI image generation failed");
+  }
+
+  const imageUrl = data.data?.[0]?.url;
+
+  if (!imageUrl) {
+    throw new Error("No image URL returned");
+  }
 
   return {
-  imageUrl: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1024&q=80"
-};
+    imageUrl
+  };
 }
 
 // 🔹 MAIN HANDLER
