@@ -36,7 +36,7 @@ async function generateImageWithProvider(prompt) {
     },
     body: JSON.stringify({
       model: "gpt-image-1",
-      prompt: prompt,
+      prompt,
       size: "1024x1024"
     })
   });
@@ -46,14 +46,18 @@ async function generateImageWithProvider(prompt) {
   console.log("🟡 OpenAI image response:", data);
 
   if (!response.ok) {
-    throw new Error("OpenAI image generation failed");
+    throw new Error(
+      data?.error?.message || "OpenAI image generation failed"
+    );
   }
 
-  const imageUrl = data.data?.[0]?.url;
+  const b64 = data.data?.[0]?.b64_json;
 
-  if (!imageUrl) {
-    throw new Error("No image URL returned");
+  if (!b64) {
+    throw new Error("No base64 image returned");
   }
+
+  const imageUrl = `data:image/png;base64,${b64}`;
 
   return {
     imageUrl
