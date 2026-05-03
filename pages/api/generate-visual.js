@@ -6,7 +6,7 @@ const supabase = createClient(
 );
 
 // 🔹 IMAGE PROMPT BUILDER
-function buildImagePrompt({ dreamText, interpretation }) {
+function buildImagePrompt({ dreamText, interpretation, variationSeed }) {
   return `Create a cinematic, dreamlike visual scene based on the following dream.
 
 Style:
@@ -18,12 +18,19 @@ Style:
 - dreamlike composition
 - volumetric light
 - slightly mystical
+- premium AI artwork
+
+Variation instruction:
+Create a NEW visual version of this dream.
+Use a different camera angle, composition, lighting, atmosphere, framing, and symbolic emphasis.
+Variation seed: ${variationSeed}
 
 Rules:
 - single clear scene
 - no text, no UI, no collage
 - no multiple panels
 - no distortion or broken anatomy
+- no extra random objects unrelated to the dream
 
 Focus:
 - capture the emotional core of the dream
@@ -40,7 +47,7 @@ Output:
 A single beautiful, cinematic dream scene.`;
 }
 
-// 🔹 MOCK IMAGE GENERATOR (SAFE)
+// 🔹 REAL IMAGE GENERATOR
 async function generateImageWithProvider(prompt) {
   console.log("🟡 Generating real image with OpenAI");
 
@@ -62,9 +69,7 @@ async function generateImageWithProvider(prompt) {
   console.log("🟡 OpenAI image response:", data);
 
   if (!response.ok) {
-    throw new Error(
-      data?.error?.message || "OpenAI image generation failed"
-    );
+    throw new Error(data?.error?.message || "OpenAI image generation failed");
   }
 
   const b64 = data.data?.[0]?.b64_json;
@@ -73,10 +78,8 @@ async function generateImageWithProvider(prompt) {
     throw new Error("No base64 image returned");
   }
 
-  const imageUrl = `data:image/png;base64,${b64}`;
-
   return {
-    imageUrl
+    imageUrl: `data:image/png;base64,${b64}`
   };
 }
 
@@ -107,9 +110,11 @@ export default async function handler(req, res) {
 
     const dreamId = body?.dreamId;
     const userId = body?.userId;
+    const regenerate = Boolean(body?.regenerate);
 
     console.log("🔴 dreamId:", dreamId);
     console.log("🔴 userId:", userId);
+    console.log("🔴 regenerate:", regenerate);
 
     if (!dreamId) {
       return res.status(400).json({ error: "dreamId missing" });
@@ -161,14 +166,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: "dream not found" });
     }
 
-    // 🔹 REUSE EXISTING IMAGE
-    if (dream.image_url) {
+    // 🔹 REUSE EXISTING IMAGE ONLY IF NOT REGENERATING
+    if (dream.image_url && !regenerate) {
       console.log("🟢 using existing image");
 
       return res.status(200).json({
         ok: true,
         reused: true,
-        imageUrl: dream.image_url
+        imageUrl: dream.image_url,
+        imagePrompt: dream.image_prompt || null
       });
     }
 
@@ -178,11 +184,15 @@ export default async function handler(req, res) {
       dream.result_traditional ||
       "";
 
+    const variationSeed = Math.floor(Math.random() * 1000000);
+
     const imagePrompt = buildImagePrompt({
       dreamText: dream.dream_text,
-      interpretation
+      interpretation,
+      variationSeed
     });
 
+    console.log("🟡 variationSeed:", variationSeed);
     console.log("🟡 imagePrompt:", imagePrompt);
 
     // 🔹 GENERATE IMAGE
@@ -217,7 +227,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
-      imageUrl: generated.imageUrl
+      reused: false,
+      regenerated: regenerate,
+      imageUrl: generated.imageUrl,
+      imagePrompt
     });
   } catch (err) {
     console.error("💥 FATAL:", err);
