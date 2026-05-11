@@ -148,23 +148,33 @@ export default async function handler(req, res) {
     }
 
     // 🔹 GET DREAM
-    const { data: dream, error: dreamError } = await supabase
-      .from("dreams")
-      .select("*")
-      .eq("id", dreamId)
-      .eq("user_id", userId)
-      .single();
+  const { data: dream, error: dreamError } = await supabase
+  .from("dreams")
+  .select("*")
+  .eq("id", dreamId)
+  .maybeSingle();
 
-    console.log("🟡 dream found:", !!dream);
+console.log("🟡 dream lookup by id:", dream);
+console.log("🟡 dream lookup error:", dreamError);
 
-    if (dreamError) {
-      console.error("❌ dream error:", dreamError);
-      return res.status(500).json({ error: "dream fetch failed" });
-    }
+if (dreamError) {
+  console.error("❌ dream error:", dreamError);
+  return res.status(500).json({ error: "dream fetch failed", detail: dreamError.message });
+}
 
-    if (!dream) {
-      return res.status(404).json({ error: "dream not found" });
-    }
+if (!dream) {
+  return res.status(404).json({
+    error: "dream not found",
+    detail: "No dream found with this dreamId"
+  });
+}
+
+if (dream.user_id && dream.user_id !== userId) {
+  return res.status(403).json({
+    error: "dream ownership mismatch",
+    detail: "This dream belongs to a different user"
+  });
+}
 
     // 🔹 REUSE EXISTING IMAGE ONLY IF NOT REGENERATING
     if (dream.image_url && !regenerate) {
