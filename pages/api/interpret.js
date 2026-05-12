@@ -106,50 +106,39 @@ async function callClaudeWithRetry(payload, retries = 3) {
     try {
       console.log(`🟡 Claude attempt ${attempt}`);
 
-      const response = await fetch(
-        "https://api.anthropic.com/v1/messages",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": process.env.ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01"
-          },
-          body: JSON.stringify(payload)
-        }
-      );
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": process.env.ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify(payload)
+      });
 
       const data = await response.json();
 
-      // ✅ SUCCESS
-      
+      if (response.ok) {
+        console.log("🟢 Claude success");
+        return data;
+      }
 
-      console.error("❌ Claude API error:", data);
+      console.error("❌ Claude API error status:", response.status);
+      console.error("❌ Claude API error detail:", data);
 
       const errorType = data?.error?.type;
 
-      // ✅ Retry only for temporary overload/rate issues
       if (
-        errorType === "overloaded_error" ||
-        errorType === "rate_limit_error"
+        (errorType === "overloaded_error" || errorType === "rate_limit_error") &&
+        attempt < retries
       ) {
-        if (attempt < retries) {
-          const delay = attempt * 2000;
-
-          console.log(`🟡 Retrying in ${delay}ms...`);
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, delay)
-          );
-
-          continue;
-        }
+        const delay = attempt * 2000;
+        console.log(`🟡 Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
       }
 
-      throw new Error(
-        data?.error?.message || "Claude API failed"
-      );
-
+      throw new Error(data?.error?.message || "Claude API failed");
     } catch (err) {
       console.error("❌ Claude retry failure:", err);
 
@@ -158,14 +147,12 @@ async function callClaudeWithRetry(payload, retries = 3) {
       }
 
       const delay = attempt * 2000;
-
       console.log(`🟡 Retry after failure in ${delay}ms...`);
-
-      await new Promise((resolve) =>
-        setTimeout(resolve, delay)
-      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+
+  throw new Error("Claude API failed after retries");
 }
 
 export default async function handler(req, res) {
@@ -397,26 +384,15 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(modeSelected, dreamText);
 
     const data = await callClaudeWithRetry({
-  model: "claude-sonnet-4-6",
-  max_tokens: 1000,
-  messages: [
-    {
-      role: "user",
-      content: prompt
-    }
-  ]
-});
-
-    if (!response.ok) {
-      console.error("❌ Claude API error status:", response.status);
-      console.error("❌ Claude API error detail:", data);
-
-      return res.status(500).json({
-        error: "Claude API error",
-        status: response.status,
-        detail: data
-      });
-    }
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    });
 
     if (!data || !data.content || !data.content.length) {
       return res.status(500).json({
