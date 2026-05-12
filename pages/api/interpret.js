@@ -368,32 +368,34 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(modeSelected, dreamText);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 800,
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
-      })
-    });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-api-key": process.env.ANTHROPIC_API_KEY,
+    "anthropic-version": "2023-06-01"
+  },
+  body: JSON.stringify({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1000,
+    messages: [...]
+  })
+});
 
-    const data = await response.json();
+const data = await response.json();
 
-    if (!response.ok) {
-      return res.status(500).json({
-        error: "Claude API error",
-        detail: data
-      });
-    }
+// ✅ BURAYA EKLE
+if (!response.ok) {
+  console.error("❌ Claude API error status:", response.status);
+  console.error("❌ Claude API error detail:", data);
+
+  return res.status(500).json({
+    error: "Claude API error",
+    status: response.status,
+    detail: data
+  });
+}
+
+// normal flow devam eder
 
     if (!data || !data.content || !data.content.length) {
       return res.status(500).json({
