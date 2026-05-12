@@ -101,6 +101,73 @@ function getMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+async function callClaudeWithRetry(payload, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`🟡 Claude attempt ${attempt}`);
+
+      const response = await fetch(
+        "https://api.anthropic.com/v1/messages",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": process.env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      const data = await response.json();
+
+      // ✅ SUCCESS
+      
+
+      console.error("❌ Claude API error:", data);
+
+      const errorType = data?.error?.type;
+
+      // ✅ Retry only for temporary overload/rate issues
+      if (
+        errorType === "overloaded_error" ||
+        errorType === "rate_limit_error"
+      ) {
+        if (attempt < retries) {
+          const delay = attempt * 2000;
+
+          console.log(`🟡 Retrying in ${delay}ms...`);
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, delay)
+          );
+
+          continue;
+        }
+      }
+
+      throw new Error(
+        data?.error?.message || "Claude API failed"
+      );
+
+    } catch (err) {
+      console.error("❌ Claude retry failure:", err);
+
+      if (attempt >= retries) {
+        throw err;
+      }
+
+      const delay = attempt * 2000;
+
+      console.log(`🟡 Retry after failure in ${delay}ms...`);
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, delay)
+      );
+    }
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
@@ -329,26 +396,16 @@ export default async function handler(req, res) {
 
     const prompt = buildPrompt(modeSelected, dreamText);
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
-      })
-    });
-
-    const data = await response.json();
+    const data = await callClaudeWithRetry({
+  model: "claude-sonnet-4-6",
+  max_tokens: 1000,
+  messages: [
+    {
+      role: "user",
+      content: prompt
+    }
+  ]
+});
 
     if (!response.ok) {
       console.error("❌ Claude API error status:", response.status);
